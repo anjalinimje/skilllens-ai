@@ -1934,7 +1934,7 @@ def render_new_analysis():
                     type="primary",
                 ):
                     try:
-                        with st.spinner("AI is tailoring your resume locally..."):
+                        with st.spinner("AI is tailoring your resume with Groq..."):
                             st.session_state[draft_key] = build_ai_tailored_draft(
                                 record["role"],
                                 record["job_description"],
@@ -1957,7 +1957,7 @@ def render_new_analysis():
                     except Exception as exc:
                         st.error(
                             "Could not generate the AI-tailored resume. "
-                            "Check that Ollama is running and the model is available."
+                            "Check your Groq API key, network connection, and free-tier limits."
                         )
                         st.caption(f"Technical details: {exc}")
                 if draft_key in st.session_state:

@@ -5,7 +5,11 @@ from groq import Groq
 MODEL_NAME = "qwen/qwen3.8-27b"
 
 
-def generate_ai_response(prompt: str) -> str:
+def generate_ai_response(
+    prompt: str,
+    max_tokens: int = 3000,
+    temperature: float = 0.2,
+) -> str:
     """Generate an AI response using Groq's hosted API."""
 
     api_key = st.secrets.get("GROQ_API_KEY")
@@ -34,8 +38,8 @@ def generate_ai_response(prompt: str) -> str:
                 "content": prompt,
             },
         ],
-        temperature=0.2,
-        max_tokens=3000,
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
 
     return response.choices[0].message.content or ""

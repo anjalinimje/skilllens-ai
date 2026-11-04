@@ -3,18 +3,15 @@
 This module renders only the Career Guidance page; it does not create or modify
 sidebar navigation, the sidebar logo, or the app shell. It generates role-specific
 career roadmaps for a wide range of occupations using
-a locally running Ollama model. No paid API key is required.
+the shared Groq API integration configured in ai_engine.py.
 """
 
 import json
 import re
 import html
-import requests
 import streamlit as st
+from ai_engine import generate_ai_response
 
-
-OLLAMA_URL = "http://localhost:11434/api/generate"
-DEFAULT_MODEL = "llama3.2"
 
 
 def _safe_text(value):
@@ -89,19 +86,26 @@ Quality requirements:
 """
 
 
-def _generate_roadmap(role, experience, weekly_hours, model):
-    payload = {
-        "model": model,
-        "prompt": _career_prompt(role, experience, weekly_hours),
-        "format": "json",
-        "stream": False,
-        "options": {"temperature": 0.25},
-    }
-    response = requests.post(OLLAMA_URL, json=payload, timeout=240)
-    response.raise_for_status()
-    body = response.json()
-    raw = body.get("response", "")
-    data = json.loads(raw)
+def _generate_roadmap(role, experience, weekly_hours):
+    """Generate and validate a career roadmap through the shared Groq engine."""
+    raw = generate_ai_response(
+        _career_prompt(role, experience, weekly_hours),
+        max_tokens=4500,
+        temperature=0.2,
+    )
+
+    # Models may wrap JSON in Markdown fences despite being asked for JSON.
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    # Extract the JSON object if the model adds a short sentence around it.
+    start, end = cleaned.find("{"), cleaned.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError("The AI did not return a valid JSON roadmap. Please try again.")
+
+    data = json.loads(cleaned[start:end + 1])
     required = ["role_title", "role_summary", "day_to_day", "skills", "phases"]
     missing = [key for key in required if key not in data]
     if missing:
@@ -730,39 +734,25 @@ def render_career_guidance():
             st.session_state.pop("career_guidance_result", None)
             st.session_state["career_guidance_error"] = ""
 
-            model = st.session_state.get("career_ollama_model", DEFAULT_MODEL)
-            with st.spinner(f"Building a tailored roadmap for {cleaned}..."):
+            with st.spinner(f"Building a tailored roadmap for {cleaned} with SkillLens AI..."):
                 try:
-                    result = _generate_roadmap(cleaned, exp, hours, model)
+                    result = _generate_roadmap(cleaned, exp, hours)
                     st.session_state["career_guidance_result"] = result
-                except requests.exceptions.ConnectionError:
+                except json.JSONDecodeError as exc:
                     st.session_state["career_guidance_error"] = (
-                        "SkillLens AI cannot reach Ollama on this Mac. Start the Ollama app, "
-                        "then download a model in Terminal using: ollama pull llama3.2"
-                    )
-                except requests.exceptions.Timeout:
-                    st.session_state["career_guidance_error"] = (
-                        "The local AI took too long to respond. Try again, or use a smaller Ollama model."
-                    )
-                except requests.exceptions.HTTPError as exc:
-                    st.session_state["career_guidance_error"] = (
-                        f"Ollama returned an HTTP error: {exc}. Check that the selected model is installed."
-                    )
-                except (ValueError, json.JSONDecodeError, KeyError) as exc:
-                    st.session_state["career_guidance_error"] = (
-                        f"The AI response could not be formatted as a roadmap: {exc}. Please try again."
+                        f"The AI response was not valid JSON: {exc}. Please try again."
                     )
                 except Exception as exc:
                     st.session_state["career_guidance_error"] = (
-                        f"Could not generate the roadmap: {exc}"
+                        f"Could not generate the roadmap using Groq: {exc}"
                     )
 
     error = st.session_state.get("career_guidance_error", "")
     if error:
         st.error(error)
         st.info(
-            "This version uses Ollama locally, so it does not require a paid API subscription. "
-            "The model runs on your own computer. Install Ollama and run `ollama pull llama3.2` once."
+            "Career Guidance uses the Groq API configured in your Streamlit Secrets. "
+            "Check that GROQ_API_KEY is set and that your Groq Free Plan usage limits have not been reached."
         )
 
     result = st.session_state.get("career_guidance_result")
